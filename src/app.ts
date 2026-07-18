@@ -28,13 +28,14 @@ app.get('/api/v1/health', (req: Request, res: Response) => {
 
 // Import routes
 import authRoutes from './routes/auth.routes';
+import applicationRoutes from './routes/application.routes';
 
 // Mount routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/applications', applicationRoutes);
 
 // Placeholder for future routes
 // app.use('/api/v1/jobs', jobRoutes);
-// app.use('/api/v1/applications', applicationRoutes);
 // app.use('/api/v1/ai', aiRoutes);
 
 export default app;

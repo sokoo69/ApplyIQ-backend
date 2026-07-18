@@ -2,7 +2,16 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IApplication extends Document {
   user: mongoose.Types.ObjectId;
-  job: mongoose.Types.ObjectId;
+  job?: mongoose.Types.ObjectId;
+  
+  // Custom fields for manual tracking
+  title?: string;
+  shortDescription?: string;
+  fullDescription?: string;
+  priority?: 'Low' | 'Medium' | 'High';
+  deadline?: Date;
+  imageUrl?: string;
+
   status: 'Saved' | 'Applied' | 'Interview' | 'Offer' | 'Rejected';
   notes?: string;
   appliedAt?: Date;
@@ -17,7 +26,16 @@ export interface IApplication extends Document {
 const ApplicationSchema: Schema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    job: { type: Schema.Types.ObjectId, ref: 'Job', required: true },
+    job: { type: Schema.Types.ObjectId, ref: 'Job' },
+    
+    // Custom fields for manual tracking
+    title: { type: String },
+    shortDescription: { type: String },
+    fullDescription: { type: String },
+    priority: { type: String, enum: ['Low', 'Medium', 'High'] },
+    deadline: { type: Date },
+    imageUrl: { type: String },
+
     status: { 
       type: String, 
       enum: ['Saved', 'Applied', 'Interview', 'Offer', 'Rejected'], 
@@ -42,7 +60,8 @@ const ApplicationSchema: Schema = new Schema(
   }
 );
 
-// Compound index to prevent duplicate tracking of the same job by the same user
-ApplicationSchema.index({ user: 1, job: 1 }, { unique: true });
+// Compound index to prevent duplicate tracking of the same public job by the same user.
+// Uses sparse to allow multiple manually tracked jobs (which have no job id).
+ApplicationSchema.index({ user: 1, job: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model<IApplication>('Application', ApplicationSchema);
