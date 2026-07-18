@@ -16,7 +16,10 @@ export const auth = betterAuth({
     "http://localhost:3000",
   ],
   advanced: {
-    disableCSRFCheck: true,
+    defaultCookieAttributes: {
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.NODE_ENV === "production",
+    }
   },
   database: mongodbAdapter(db as unknown as Db, {
     usePlural: true,
