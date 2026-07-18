@@ -3,9 +3,9 @@ import { z } from 'zod';
 import Job from '../models/Job.model';
 import User from '../models/User.model';
 import MatchFeedback from '../models/MatchFeedback.model';
-import { callGemini } from '../services/gemini.service';
+import { callLLM } from '../services/llm.service';
 import AgentTrace from '../models/AgentTrace.model';
-import { extractSkillsFromResume, extractRequirementsFromJob, compareAndScore, summarizePastFeedback } from '../services/matchScore.service';
+import { analyzeAndScoreMatch, summarizePastFeedback } from '../services/matchScore.service';
 
 const getMatchScoreSchema = z.object({
   jobId: z.string(),
@@ -25,7 +25,7 @@ const executeGeminiStep = async (prompt: string, maxTokens: number, validator: (
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const outputText = await callGemini(prompt, { maxOutputTokens: maxTokens });
+      const outputText = await callLLM(prompt, { maxOutputTokens: maxTokens, jsonMode: true });
       
       let cleanJsonStr = outputText.trim();
       if (cleanJsonStr.startsWith('```json')) {
@@ -53,7 +53,7 @@ const executeGeminiStep = async (prompt: string, maxTokens: number, validator: (
   }
 
   if (!parsedData) {
-    throw new Error('Failed to parse AI response');
+    throw new Error(`Failed to parse AI response: ${lastError?.message || 'Unknown error'}`);
   }
 
   return parsedData;
@@ -77,62 +77,64 @@ export const getMatchScore = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const traceSteps: any[] = [];
-    
-    // Step 1: Extract Skills
-    const extractSkillsPrompt = extractSkillsFromResume(user.resumeText);
-    const extractedSkills = await executeGeminiStep(extractSkillsPrompt, 1024, (data) => {
-      return Array.isArray(data.skills) && typeof data.experienceLevel === 'string' && typeof data.yearsOfExperience === 'number';
-    });
-    traceSteps.push({
-      stepName: 'Extract Skills',
-      input: { resumeLength: user.resumeText.length },
-      output: extractedSkills
-    });
-
-    // Step 2: Extract Requirements
-    const extractRequirementsPrompt = extractRequirementsFromJob(job.description);
-    const extractedRequirements = await executeGeminiStep(extractRequirementsPrompt, 1024, (data) => {
-      return Array.isArray(data.requiredSkills) && Array.isArray(data.niceToHaveSkills) && typeof data.requiredExperienceLevel === 'string';
-    });
-    traceSteps.push({
-      stepName: 'Extract Requirements',
-      input: { jobDescriptionLength: job.description.length },
-      output: extractedRequirements
-    });
-
-    // Step 3: Compare and Score
+    // Step 1: Execute single optimized Gemini prompt
     const pastFeedbackSummary = await summarizePastFeedback(userId);
-    const comparePrompt = compareAndScore(extractedSkills, extractedRequirements, pastFeedbackSummary, priority);
-    const finalScore = await executeGeminiStep(comparePrompt, 1024, (data) => {
+    const analyzePrompt = analyzeAndScoreMatch(user.resumeText, job.description, pastFeedbackSummary, priority);
+    
+    const analysisResult = await executeGeminiStep(analyzePrompt, 4096, (data) => {
       return typeof data.matchPercentage === 'number' && 
-             Array.isArray(data.matchingSkills) &&
-             Array.isArray(data.missingSkills) &&
-             typeof data.recommendation === 'string';
+             data.extractedSkills &&
+             data.extractedRequirements;
     });
-    traceSteps.push({
-      stepName: 'Compare and Score',
-      input: { extractedSkills, extractedRequirements, pastFeedbackSummary },
-      output: finalScore
-    });
+
+    // Synthesize Trace Steps for UI and DB
+    const traceSteps = [
+      {
+        stepName: 'Extract Skills',
+        input: { resumeLength: user.resumeText.length },
+        output: analysisResult.extractedSkills
+      },
+      {
+        stepName: 'Extract Requirements',
+        input: { jobDescriptionLength: job.description.length },
+        output: analysisResult.extractedRequirements
+      },
+      {
+        stepName: 'Compare and Score',
+        input: { 
+          extractedSkills: analysisResult.extractedSkills, 
+          extractedRequirements: analysisResult.extractedRequirements, 
+          pastFeedbackSummary 
+        },
+        output: {
+          matchPercentage: analysisResult.matchPercentage,
+          matchingSkills: analysisResult.matchingSkills,
+          missingSkills: analysisResult.missingSkills,
+          recommendation: analysisResult.recommendation
+        }
+      }
+    ];
 
     // Save Agent Trace
     const agentTrace = new AgentTrace({
       user: userId,
       job: jobId,
       steps: traceSteps,
-      missingSkills: finalScore.missingSkills
+      missingSkills: analysisResult.missingSkills
     });
     await agentTrace.save();
 
     res.json({
-      ...finalScore,
+      matchPercentage: analysisResult.matchPercentage,
+      matchingSkills: analysisResult.matchingSkills,
+      missingSkills: analysisResult.missingSkills,
+      recommendation: analysisResult.recommendation,
       agentTrace: traceSteps
     });
 
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: error.errors[0].message });
+      res.status(400).json({ message: error.issues[0].message });
       return;
     }
     console.error('Error getting match score:', error);
@@ -158,7 +160,7 @@ export const recordFeedback = async (req: Request, res: Response): Promise<void>
     res.status(201).json({ message: 'Feedback recorded successfully', feedback });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: error.errors[0].message });
+      res.status(400).json({ message: error.issues[0].message });
       return;
     }
     console.error('Error recording match feedback:', error);

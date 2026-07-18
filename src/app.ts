@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import { auth } from './config/better-auth';
+import { toNodeHandler } from 'better-auth/node';
 
 dotenv.config();
 
@@ -18,8 +20,19 @@ app.use(
   })
 );
 app.use(morgan('dev'));
-app.use(express.json());
 app.use(cookieParser());
+
+// Mount Better Auth BEFORE express.json() so it can read the raw request body stream
+app.all(/^\/api\/v1\/auth\/(.*)/, (req, res, next) => {
+  // Skip our custom routes so they fall through to authRoutes
+  const subPath = req.path.replace('/api/v1/auth', '');
+  if (subPath.startsWith('/demo-login') || subPath.startsWith('/me')) {
+    return next();
+  }
+  return toNodeHandler(auth)(req, res);
+});
+
+app.use(express.json());
 
 // Base health-check route
 app.get('/api/v1/health', (req: Request, res: Response) => {
@@ -35,6 +48,7 @@ import aiChatRoutes from './routes/aiChat.routes';
 import userRoutes from './routes/user.routes';
 import jobRoutes from './routes/job.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import adminRoutes from './routes/admin.routes';
 
 // Mount routes
 app.use('/api/v1/auth', authRoutes);
@@ -45,5 +59,6 @@ app.use('/api/v1/ai/chat', aiChatRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/jobs', jobRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 export default app;

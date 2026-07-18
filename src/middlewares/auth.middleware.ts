@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import User from '../models/User.model';
+import { auth } from '../config/better-auth';
+import { db } from '../config/db';
+import { ObjectId } from 'mongodb';
 
 // Extend Express Request type to include user
 declare global {
@@ -13,44 +14,55 @@ declare global {
 
 /**
  * requireAuth:
- * Verifies JWT token from httpOnly cookie.
- * 
- * Security Decision: We use httpOnly, secure cookies for JWT instead of 
- * localStorage to prevent XSS (Cross-Site Scripting) attacks from accessing the token.
+ * Verifies Better Auth session, then attaches role from MongoDB.
  */
 export const requireAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const token = req.cookies?.token;
-
-    if (!token) {
-      res.status(401).json({ message: 'Unauthorized, no token provided' });
-      return;
+    // Convert Express IncomingHttpHeaders → Web API Headers (Better Auth requires this)
+    const webHeaders = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue;
+      if (Array.isArray(value)) {
+        value.forEach((v) => webHeaders.append(key, v));
+      } else {
+        webHeaders.set(key, value);
+      }
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { userId: string };
+    const session = await auth.api.getSession({ headers: webHeaders });
     
-    // Attach user to request, excluding sensitive fields
-    const user = await User.findById(decoded.userId).select('-passwordHash');
-    
-    if (!user) {
-      res.status(401).json({ message: 'Unauthorized, user not found' });
+    if (!session || !session.user) {
+      res.status(401).json({ message: 'Unauthorized, no session' });
       return;
     }
+    
+    // Fetch role and resumeText from our users collection
+    const dbUser = await db.collection('users').findOne(
+      { _id: new ObjectId(session.user.id) },
+      { projection: { role: 1, resumeText: 1 } }
+    );
 
-    req.user = user;
+    // Attach user, role, and resumeText to request
+    req.user = {
+      ...session.user,
+      role: dbUser?.role || 'job_seeker', // Default to job_seeker if not set
+      resumeText: dbUser?.resumeText || '',
+    };
     next();
   } catch (error) {
-    res.status(401).json({ message: 'Unauthorized, token invalid' });
+    res.status(401).json({ message: 'Unauthorized, session invalid' });
   }
 };
 
 /**
  * requireRole:
  * Authorization middleware to check if the authenticated user has a specific role.
+ * Accepts a single role string or array of allowed roles.
  */
-export const requireRole = (role: string) => {
+export const requireRole = (role: string | string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user || req.user.role !== role) {
+    const allowedRoles = Array.isArray(role) ? role : [role];
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
       res.status(403).json({ message: 'Forbidden, insufficient permissions' });
       return;
     }

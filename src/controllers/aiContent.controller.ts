@@ -3,7 +3,7 @@ import { z } from 'zod';
 import Application from '../models/Application.model';
 import User from '../models/User.model';
 import AIGeneration from '../models/AIGeneration.model';
-import { callGemini } from '../services/gemini.service';
+import { callLLM } from '../services/llm.service';
 import { buildCoverLetterPrompt } from '../services/coverLetter.service';
 
 const generateCoverLetterSchema = z.object({
@@ -49,7 +49,7 @@ export const generateCoverLetter = async (req: Request, res: Response): Promise<
     const prompt = buildCoverLetterPrompt(user.resumeText, jobDescription, tone, length);
     
     // Call Gemini API
-    const outputText = await callGemini(prompt, { maxOutputTokens: 2048 });
+    const outputText = await callLLM(prompt, { maxOutputTokens: 2048 });
 
     // Save history
     const aiGeneration = new AIGeneration({
@@ -69,7 +69,7 @@ export const generateCoverLetter = async (req: Request, res: Response): Promise<
 
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: error.errors[0].message });
+      res.status(400).json({ message: error.issues[0].message });
       return;
     }
     console.error('Error generating cover letter:', error);

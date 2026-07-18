@@ -4,7 +4,7 @@ import ChatSession from '../models/ChatSession.model';
 import User from '../models/User.model';
 import Job from '../models/Job.model';
 import Application from '../models/Application.model';
-import { streamGeminiChat } from '../services/gemini.service';
+import { streamLLMChat } from '../services/llm.service';
 import { buildSystemContext } from '../services/interviewCoach.service';
 
 const createSessionSchema = z.object({
@@ -79,7 +79,7 @@ export const createChatSession = async (req: Request, res: Response): Promise<vo
 
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: error.errors[0].message });
+      res.status(400).json({ message: error.issues[0].message });
       return;
     }
     console.error('Error creating chat session:', error);
@@ -135,12 +135,12 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const responseStream = await streamGeminiChat(geminiMessages);
+    const responseStream = await streamLLMChat(geminiMessages);
 
     let fullAssistantResponse = '';
 
     for await (const chunk of responseStream) {
-      const chunkText = chunk.text();
+      const chunkText = chunk.text;
       fullAssistantResponse += chunkText;
       
       // Stream chunk to client
@@ -163,23 +163,24 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     }
 
     // Save assistant message
-    session.messages.push({ role: 'assistant', content: fullAssistantResponse, timestamp: new Date() });
+    session.messages.push({ role: 'assistant', content: finalCleanResponse, timestamp: new Date() });
     await session.save();
 
     // Send final structured metadata
-    res.write(`data: ${JSON.stringify({ done: true, followUpPrompts })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, followUpPrompts, finalCleanResponse })}\n\n`);
     res.end();
 
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: error.errors[0].message });
+      res.status(400).json({ message: error.issues[0].message });
       return;
     }
     console.error('Error in sendMessage:', error);
     if (!res.headersSent) {
-      res.status(500).json({ message: 'Server error processing message' });
+      res.status(500).json({ message: error.message || 'Server error processing message' });
     } else {
-      res.write(`data: ${JSON.stringify({ error: 'Failed to complete response' })}\n\n`);
+      const errorMsg = error.message === 'AI_RATE_LIMIT' ? 'AI_RATE_LIMIT' : 'Failed to complete response';
+      res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
       res.end();
     }
   }

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.middleware';
+import { requireAuth, requireRole } from '../middlewares/auth.middleware';
 import {
   createApplication,
   getMyApplications,
@@ -11,6 +11,7 @@ const router = Router();
 
 // All routes require authentication
 router.use(requireAuth);
+router.use(requireRole('job_seeker'));
 
 router.post('/', createApplication);
 router.get('/me', getMyApplications);

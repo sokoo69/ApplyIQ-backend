@@ -61,7 +61,10 @@ const ApplicationSchema: Schema = new Schema(
 );
 
 // Compound index to prevent duplicate tracking of the same public job by the same user.
-// Uses sparse to allow multiple manually tracked jobs (which have no job id).
-ApplicationSchema.index({ user: 1, job: 1 }, { unique: true, sparse: true });
+// Uses partialFilterExpression to allow multiple manually tracked jobs (which have no job id).
+ApplicationSchema.index(
+  { user: 1, job: 1 }, 
+  { unique: true, partialFilterExpression: { job: { $exists: true, $type: 'objectId' } } }
+);
 
 export default mongoose.model<IApplication>('Application', ApplicationSchema);

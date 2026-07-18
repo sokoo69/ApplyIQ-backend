@@ -29,7 +29,7 @@ export const createApplication = async (req: Request, res: Response): Promise<vo
       // Check for duplicate
       const existing = await Application.findOne({ user: req.user?.id, job: validatedData.job });
       if (existing) {
-        res.status(400).json({ message: 'You are already tracking this job.' });
+        res.status(409).json({ message: "You're already tracking this job" });
         return;
       }
     }
@@ -45,7 +45,7 @@ export const createApplication = async (req: Request, res: Response): Promise<vo
     res.status(201).json(application);
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: error.errors[0].message });
+      res.status(400).json({ message: error.issues[0].message });
       return;
     }
     console.error('Error creating application:', error);
@@ -89,7 +89,7 @@ export const updateApplicationStatus = async (req: Request, res: Response): Prom
     res.json(application);
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: error.errors[0].message });
+      res.status(400).json({ message: error.issues[0].message });
       return;
     }
     console.error('Error updating application:', error);

@@ -46,61 +46,12 @@ export const summarizePastFeedback = async (userId: string): Promise<string> => 
   }
 };
 
-export const extractSkillsFromResume = (resumeText: string): string => {
-  return `
-You are an expert technical recruiter AI. Your task is to extract a structured list of skills and experience from a candidate's resume.
-
-INSTRUCTIONS:
-1. Analyze the Resume thoroughly.
-2. Extract all relevant technical skills, soft skills, tools, and methodologies.
-3. Determine the overall experience level (e.g., "Entry-level", "Mid-level", "Senior", "Lead") and estimate total years of experience.
-4. You MUST respond ONLY with a valid JSON object. Do NOT include markdown formatting, do NOT include \`\`\`json or \`\`\` tags. The output must be parseable by JSON.parse().
-
-The JSON object MUST exactly match this structure:
-{
-  "skills": string[], // Array of extracted skills
-  "experienceLevel": string, // "Entry-level", "Mid-level", "Senior", etc.
-  "yearsOfExperience": number // Estimated total years of experience
-}
-
-Resume Text:
-"""
-${resumeText}
-"""
-`;
-};
-
-export const extractRequirementsFromJob = (jobDescription: string): string => {
-  return `
-You are an expert technical recruiter AI. Your task is to extract structured requirements from a Job Description.
-
-INSTRUCTIONS:
-1. Analyze the Job Description thoroughly.
-2. Differentiate between absolutely required skills and "nice-to-have" skills.
-3. Determine the required experience level.
-4. You MUST respond ONLY with a valid JSON object. Do NOT include markdown formatting, do NOT include \`\`\`json or \`\`\` tags. The output must be parseable by JSON.parse().
-
-The JSON object MUST exactly match this structure:
-{
-  "requiredSkills": string[], // Array of absolutely required skills
-  "niceToHaveSkills": string[], // Array of bonus or nice-to-have skills
-  "requiredExperienceLevel": string // e.g., "Entry-level", "Mid-level", "Senior"
-}
-
-Job Description:
-"""
-${jobDescription}
-"""
-`;
-};
-
-export const compareAndScore = (
-  extractedSkills: any,
-  extractedRequirements: any,
+export const analyzeAndScoreMatch = (
+  resumeText: string,
+  jobDescription: string,
   pastFeedbackSummary: string,
   priority: string = 'balanced'
 ): string => {
-  
   let priorityInstruction = 'Evaluate all factors equally.';
   if (priority === 'prioritize_salary') {
     priorityInstruction = 'While evaluating skills, give extra weight to whether the job appears to be a high-compensation role or senior position matching the user\'s level.';
@@ -109,31 +60,43 @@ export const compareAndScore = (
   }
 
   return `
-You are an expert technical recruiter AI. Your task is to compare a candidate's extracted skills against a job's extracted requirements and calculate a Match Score.
+You are an expert technical recruiter AI. Your task is to analyze a candidate's resume and a job description, then calculate a Match Score.
 
 INSTRUCTIONS:
-1. Compare the Candidate's Extracted Skills against the Job's Extracted Requirements.
-2. ${priorityInstruction}
-3. Consider the following context about the user's past behavior:
+1. Extract skills and experience from the Candidate's Resume.
+2. Extract required and nice-to-have skills from the Job Description.
+3. Compare the candidate's skills against the job requirements.
+4. ${priorityInstruction}
+5. Consider the following context about the user's past behavior:
 ${pastFeedbackSummary}
-4. You MUST respond ONLY with a valid JSON object. Do NOT include markdown formatting, do NOT include \`\`\`json or \`\`\` tags. The output must be parseable by JSON.parse().
+6. You MUST respond ONLY with a valid JSON object. Do NOT include markdown formatting, do NOT include \`\`\`json or \`\`\` tags. The output must be parseable by JSON.parse().
 
 The JSON object MUST exactly match this structure:
 {
+  "extractedSkills": {
+    "skills": string[], // Array of extracted skills
+    "experienceLevel": string, // "Entry-level", "Mid-level", "Senior", etc.
+    "yearsOfExperience": number // Estimated total years of experience
+  },
+  "extractedRequirements": {
+    "requiredSkills": string[], // Array of absolutely required skills
+    "niceToHaveSkills": string[], // Array of bonus or nice-to-have skills
+    "requiredExperienceLevel": string // e.g., "Entry-level", "Mid-level", "Senior"
+  },
   "matchPercentage": number, // A number between 0 and 100 representing the overall match
   "matchingSkills": string[], // Array of 3-5 key skills the candidate possesses that match the job requirements
   "missingSkills": string[], // Array of 1-3 key required skills that the candidate lacks
   "recommendation": string // A single sentence recommendation on whether they should apply, taking into account their past feedback behavior.
 }
 
-Candidate Extracted Skills:
+Candidate Resume:
 """
-${JSON.stringify(extractedSkills, null, 2)}
+${resumeText}
 """
 
-Job Extracted Requirements:
+Job Description:
 """
-${JSON.stringify(extractedRequirements, null, 2)}
+${jobDescription}
 """
 `;
 };
