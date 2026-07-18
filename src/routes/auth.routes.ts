@@ -1,9 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { register, login, logout, getMe, demoLogin } from '../controllers/auth.controller';
+import { register, login, logout, getMe, demoLogin, googleLogin, googleCallback } from '../controllers/auth.controller';
 import { requireAuth } from '../middlewares/auth.middleware';
-import { auth } from '../config/better-auth';
-import { toNodeHandler } from "better-auth/node";
 
 const router = Router();
 
@@ -23,8 +21,8 @@ router.post('/logout', logout);
 router.get('/me', requireAuth, getMe);
 router.post('/demo-login', demoLogin);
 
-// Better Auth routes (handles /api/v1/auth/google implicitly or via better-auth endpoints)
-// We mount Better Auth's handler for any other auth-related sub-routes it requires.
-router.all('/*', toNodeHandler(auth));
+// Custom Google OAuth Routes
+router.get('/google', googleLogin);
+router.get('/google/callback', googleCallback);
 
 export default router;

@@ -106,9 +106,18 @@ export const demoLogin = async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  const user = await User.findOne({ email: 'demo@applyiq.com' });
+  // Security Decision: Strictly hardcode the email to prevent any body injection.
+  const targetEmail = 'demo@applyiq.com';
+
+  const user = await User.findOne({ email: targetEmail });
   if (!user) {
     res.status(404).json({ message: 'Demo user not found. Run seed script first.' });
+    return;
+  }
+
+  // Security Decision: Ensure the demo user does not possess elevated permissions.
+  if (user.role === 'admin') {
+    res.status(403).json({ message: 'Demo user cannot have admin privileges.' });
     return;
   }
 
@@ -116,4 +125,74 @@ export const demoLogin = async (req: Request, res: Response): Promise<void> => {
   
   const userResponse = { id: user._id, name: user.name, email: user.email, role: user.role };
   res.status(200).json({ message: 'Demo logged in', user: userResponse });
+};
+
+export const googleLogin = (req: Request, res: Response): void => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const redirectUri = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/auth/google/callback`;
+  const scope = 'email profile';
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(scope)}`;
+  res.redirect(authUrl);
+};
+
+export const googleCallback = async (req: Request, res: Response): Promise<void> => {
+  const code = req.query.code as string;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/auth/google/callback`;
+
+  if (!code) {
+    res.status(400).json({ message: 'Authorization code missing' });
+    return;
+  }
+
+  try {
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId || '',
+        client_secret: clientSecret || '',
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok) {
+      console.error('Token error:', tokenData);
+      res.redirect(`${process.env.FRONTEND_ORIGIN || 'http://localhost:3000'}/login?error=GoogleAuthFailed`);
+      return;
+    }
+
+    const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    
+    const profileData = await profileResponse.json();
+    if (!profileResponse.ok || !profileData.email) {
+      console.error('Profile error:', profileData);
+      res.redirect(`${process.env.FRONTEND_ORIGIN || 'http://localhost:3000'}/login?error=GoogleProfileFailed`);
+      return;
+    }
+
+    let user = await User.findOne({ email: profileData.email });
+    if (!user) {
+      user = await User.create({
+        name: profileData.name || 'Google User',
+        email: profileData.email,
+        avatarUrl: profileData.picture,
+        role: 'job_seeker',
+        passwordHash: null,
+      });
+    }
+
+    setTokenCookie(res, user._id as string);
+    res.redirect(`${process.env.FRONTEND_ORIGIN || 'http://localhost:3000'}/dashboard`);
+    
+  } catch (error) {
+    console.error('Google OAuth error:', error);
+    res.redirect(`${process.env.FRONTEND_ORIGIN || 'http://localhost:3000'}/login?error=GoogleAuthFailed`);
+  }
 };
