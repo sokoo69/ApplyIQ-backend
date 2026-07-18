@@ -45,3 +45,24 @@ export const callGemini = async (prompt: string, options: any = {}): Promise<str
     throw new Error('Failed to generate content using AI.');
   }
 };
+
+export const streamGeminiChat = async (messages: any[], options: any = {}) => {
+  const client = initGemini();
+  if (!client) throw new Error('Gemini API key is not configured.');
+
+  try {
+    const responseStream = await client.models.generateContentStream({
+      model: 'gemini-2.5-flash',
+      contents: messages,
+      config: {
+        temperature: options.temperature || 0.7,
+        maxOutputTokens: options.maxOutputTokens || 2048,
+      }
+    });
+
+    return responseStream;
+  } catch (error: any) {
+    console.error('Error in streamGeminiChat:', error);
+    throw new Error('Failed to start chat stream');
+  }
+};

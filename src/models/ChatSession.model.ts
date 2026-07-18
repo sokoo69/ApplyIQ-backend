@@ -9,6 +9,7 @@ export interface IChatMessage {
 export interface IChatSession extends Document {
   user: mongoose.Types.ObjectId;
   job?: mongoose.Types.ObjectId | null;
+  application?: mongoose.Types.ObjectId | null;
   messages: IChatMessage[];
   createdAt: Date;
   updatedAt: Date;
@@ -27,6 +28,7 @@ const ChatSessionSchema: Schema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     job: { type: Schema.Types.ObjectId, ref: 'Job', default: null },
+    application: { type: Schema.Types.ObjectId, ref: 'Application', default: null },
     messages: [ChatMessageSchema],
   },
   {
