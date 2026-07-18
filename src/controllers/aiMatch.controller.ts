@@ -4,7 +4,8 @@ import Job from '../models/Job.model';
 import User from '../models/User.model';
 import MatchFeedback from '../models/MatchFeedback.model';
 import { callGemini } from '../services/gemini.service';
-import { buildMatchPrompt, summarizePastFeedback } from '../services/matchScore.service';
+import AgentTrace from '../models/AgentTrace.model';
+import { extractSkillsFromResume, extractRequirementsFromJob, compareAndScore, summarizePastFeedback } from '../services/matchScore.service';
 
 const getMatchScoreSchema = z.object({
   jobId: z.string(),
@@ -17,74 +18,117 @@ const recordFeedbackSchema = z.object({
   matchScoreAtTime: z.number(),
 });
 
+const executeGeminiStep = async (prompt: string, maxTokens: number, validator: (data: any) => boolean) => {
+  let maxRetries = 1;
+  let parsedData = null;
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const outputText = await callGemini(prompt, { maxOutputTokens: maxTokens });
+      
+      let cleanJsonStr = outputText.trim();
+      if (cleanJsonStr.startsWith('```json')) {
+        cleanJsonStr = cleanJsonStr.substring(7);
+      }
+      if (cleanJsonStr.startsWith('```')) {
+        cleanJsonStr = cleanJsonStr.substring(3);
+      }
+      if (cleanJsonStr.endsWith('```')) {
+        cleanJsonStr = cleanJsonStr.substring(0, cleanJsonStr.length - 3);
+      }
+      cleanJsonStr = cleanJsonStr.trim();
+
+      parsedData = JSON.parse(cleanJsonStr);
+      
+      if (!validator(parsedData)) {
+        throw new Error('Parsed JSON does not match the expected schema.');
+      }
+
+      break;
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Attempt ${attempt + 1} failed to parse Gemini JSON:`, err.message);
+    }
+  }
+
+  if (!parsedData) {
+    throw new Error('Failed to parse AI response');
+  }
+
+  return parsedData;
+};
+
 export const getMatchScore = async (req: Request, res: Response): Promise<void> => {
   try {
     const validatedData = getMatchScoreSchema.parse(req.body);
     const { jobId, priority } = validatedData;
     const userId = req.user?.id;
 
-    // Fetch user for resume text
     const user = await User.findById(userId);
     if (!user || !user.resumeText) {
       res.status(400).json({ message: 'Resume text is required to generate a match score. Please update your profile first.' });
       return;
     }
 
-    // Fetch Job description
     const job = await Job.findById(jobId);
     if (!job) {
       res.status(404).json({ message: 'Job not found.' });
       return;
     }
 
-    const pastFeedbackSummary = await summarizePastFeedback(userId);
-    const prompt = buildMatchPrompt(user.resumeText, job.description, pastFeedbackSummary, priority);
+    const traceSteps: any[] = [];
     
-    // Call Gemini API with Retry Logic for JSON parsing
-    let maxRetries = 1;
-    let parsedData = null;
-    let lastError = null;
+    // Step 1: Extract Skills
+    const extractSkillsPrompt = extractSkillsFromResume(user.resumeText);
+    const extractedSkills = await executeGeminiStep(extractSkillsPrompt, 1024, (data) => {
+      return Array.isArray(data.skills) && typeof data.experienceLevel === 'string' && typeof data.yearsOfExperience === 'number';
+    });
+    traceSteps.push({
+      stepName: 'Extract Skills',
+      input: { resumeLength: user.resumeText.length },
+      output: extractedSkills
+    });
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const outputText = await callGemini(prompt, { maxOutputTokens: 1024 });
-        
-        // Sometimes Gemini still includes markdown fences even when instructed not to
-        let cleanJsonStr = outputText.trim();
-        if (cleanJsonStr.startsWith('```json')) {
-          cleanJsonStr = cleanJsonStr.substring(7);
-        }
-        if (cleanJsonStr.startsWith('```')) {
-          cleanJsonStr = cleanJsonStr.substring(3);
-        }
-        if (cleanJsonStr.endsWith('```')) {
-          cleanJsonStr = cleanJsonStr.substring(0, cleanJsonStr.length - 3);
-        }
-        cleanJsonStr = cleanJsonStr.trim();
+    // Step 2: Extract Requirements
+    const extractRequirementsPrompt = extractRequirementsFromJob(job.description);
+    const extractedRequirements = await executeGeminiStep(extractRequirementsPrompt, 1024, (data) => {
+      return Array.isArray(data.requiredSkills) && Array.isArray(data.niceToHaveSkills) && typeof data.requiredExperienceLevel === 'string';
+    });
+    traceSteps.push({
+      stepName: 'Extract Requirements',
+      input: { jobDescriptionLength: job.description.length },
+      output: extractedRequirements
+    });
 
-        parsedData = JSON.parse(cleanJsonStr);
-        
-        // Validate parsed shape roughly
-        if (typeof parsedData.matchPercentage !== 'number' || 
-            !Array.isArray(parsedData.matchingSkills) ||
-            !Array.isArray(parsedData.missingSkills) ||
-            typeof parsedData.recommendation !== 'string') {
-          throw new Error('Parsed JSON does not match the expected schema.');
-        }
+    // Step 3: Compare and Score
+    const pastFeedbackSummary = await summarizePastFeedback(userId);
+    const comparePrompt = compareAndScore(extractedSkills, extractedRequirements, pastFeedbackSummary, priority);
+    const finalScore = await executeGeminiStep(comparePrompt, 1024, (data) => {
+      return typeof data.matchPercentage === 'number' && 
+             Array.isArray(data.matchingSkills) &&
+             Array.isArray(data.missingSkills) &&
+             typeof data.recommendation === 'string';
+    });
+    traceSteps.push({
+      stepName: 'Compare and Score',
+      input: { extractedSkills, extractedRequirements, pastFeedbackSummary },
+      output: finalScore
+    });
 
-        break; // Success
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Attempt ${attempt + 1} failed to parse Gemini JSON:`, err.message);
-      }
-    }
+    // Save Agent Trace
+    const agentTrace = new AgentTrace({
+      user: userId,
+      job: jobId,
+      steps: traceSteps,
+      missingSkills: finalScore.missingSkills
+    });
+    await agentTrace.save();
 
-    if (!parsedData) {
-      res.status(502).json({ message: 'Failed to process AI match score. Please try again later.' });
-      return;
-    }
-
-    res.json(parsedData);
+    res.json({
+      ...finalScore,
+      agentTrace: traceSteps
+    });
 
   } catch (error: any) {
     if (error instanceof z.ZodError) {
@@ -92,7 +136,7 @@ export const getMatchScore = async (req: Request, res: Response): Promise<void> 
       return;
     }
     console.error('Error getting match score:', error);
-    res.status(500).json({ message: error.message || 'Server error getting match score' });
+    res.status(502).json({ message: error.message || 'Failed to process AI match score. Please try again later.' });
   }
 };
 

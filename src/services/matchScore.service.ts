@@ -37,7 +37,7 @@ export const summarizePastFeedback = async (userId: string): Promise<string> => 
       });
     }
 
-    summary += `\nINSTRUCTION: Use this context to adjust your match score slightly. For example, if the current job strongly resembles the jobs the user DISLIKES, lower the match score and mention this in your recommendation. If it resembles jobs they LIKE, slightly increase the score.`;
+    summary += `\nCRITICAL INSTRUCTION: You MUST use this context to adjust your match score and explicitly reference it in your recommendation. For example, if the current job strongly resembles the jobs the user DISLIKES, lower the match score and EXPLICITLY state in your recommendation: "Based on your history of rejecting X roles..." (or similar). If it resembles jobs they LIKE, slightly increase the score and mention it. If you do not explicitly mention their past preferences in the recommendation string, you have failed the prompt.`;
 
     return summary;
   } catch (error) {
@@ -46,9 +46,57 @@ export const summarizePastFeedback = async (userId: string): Promise<string> => 
   }
 };
 
-export const buildMatchPrompt = (
-  resumeText: string,
-  jobDescription: string,
+export const extractSkillsFromResume = (resumeText: string): string => {
+  return `
+You are an expert technical recruiter AI. Your task is to extract a structured list of skills and experience from a candidate's resume.
+
+INSTRUCTIONS:
+1. Analyze the Resume thoroughly.
+2. Extract all relevant technical skills, soft skills, tools, and methodologies.
+3. Determine the overall experience level (e.g., "Entry-level", "Mid-level", "Senior", "Lead") and estimate total years of experience.
+4. You MUST respond ONLY with a valid JSON object. Do NOT include markdown formatting, do NOT include \`\`\`json or \`\`\` tags. The output must be parseable by JSON.parse().
+
+The JSON object MUST exactly match this structure:
+{
+  "skills": string[], // Array of extracted skills
+  "experienceLevel": string, // "Entry-level", "Mid-level", "Senior", etc.
+  "yearsOfExperience": number // Estimated total years of experience
+}
+
+Resume Text:
+"""
+${resumeText}
+"""
+`;
+};
+
+export const extractRequirementsFromJob = (jobDescription: string): string => {
+  return `
+You are an expert technical recruiter AI. Your task is to extract structured requirements from a Job Description.
+
+INSTRUCTIONS:
+1. Analyze the Job Description thoroughly.
+2. Differentiate between absolutely required skills and "nice-to-have" skills.
+3. Determine the required experience level.
+4. You MUST respond ONLY with a valid JSON object. Do NOT include markdown formatting, do NOT include \`\`\`json or \`\`\` tags. The output must be parseable by JSON.parse().
+
+The JSON object MUST exactly match this structure:
+{
+  "requiredSkills": string[], // Array of absolutely required skills
+  "niceToHaveSkills": string[], // Array of bonus or nice-to-have skills
+  "requiredExperienceLevel": string // e.g., "Entry-level", "Mid-level", "Senior"
+}
+
+Job Description:
+"""
+${jobDescription}
+"""
+`;
+};
+
+export const compareAndScore = (
+  extractedSkills: any,
+  extractedRequirements: any,
   pastFeedbackSummary: string,
   priority: string = 'balanced'
 ): string => {
@@ -57,14 +105,14 @@ export const buildMatchPrompt = (
   if (priority === 'prioritize_salary') {
     priorityInstruction = 'While evaluating skills, give extra weight to whether the job appears to be a high-compensation role or senior position matching the user\'s level.';
   } else if (priority === 'prioritize_skills') {
-    priorityInstruction = 'Give maximum weight strictly to the technical and hard skill overlap between the resume and job description.';
+    priorityInstruction = 'Give maximum weight strictly to the technical and hard skill overlap between the extracted skills and requirements.';
   }
 
   return `
-You are an expert technical recruiter AI. Your task is to evaluate a candidate's Resume against a Job Description and calculate a Match Score.
+You are an expert technical recruiter AI. Your task is to compare a candidate's extracted skills against a job's extracted requirements and calculate a Match Score.
 
 INSTRUCTIONS:
-1. Analyze the Resume and the Job Description thoroughly.
+1. Compare the Candidate's Extracted Skills against the Job's Extracted Requirements.
 2. ${priorityInstruction}
 3. Consider the following context about the user's past behavior:
 ${pastFeedbackSummary}
@@ -73,19 +121,19 @@ ${pastFeedbackSummary}
 The JSON object MUST exactly match this structure:
 {
   "matchPercentage": number, // A number between 0 and 100 representing the overall match
-  "matchingSkills": string[], // Array of 3-5 key skills the candidate possesses that match the job
-  "missingSkills": string[], // Array of 1-3 key skills required by the job that the candidate lacks
+  "matchingSkills": string[], // Array of 3-5 key skills the candidate possesses that match the job requirements
+  "missingSkills": string[], // Array of 1-3 key required skills that the candidate lacks
   "recommendation": string // A single sentence recommendation on whether they should apply, taking into account their past feedback behavior.
 }
 
-Resume Text:
+Candidate Extracted Skills:
 """
-${resumeText}
+${JSON.stringify(extractedSkills, null, 2)}
 """
 
-Job Description:
+Job Extracted Requirements:
 """
-${jobDescription}
+${JSON.stringify(extractedRequirements, null, 2)}
 """
 `;
 };
