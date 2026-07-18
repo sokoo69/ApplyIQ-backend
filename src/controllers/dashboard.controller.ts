@@ -19,8 +19,11 @@ export const getDashboardSummary = async (req: Request, res: Response): Promise<
     const eightWeeksAgo = new Date();
     eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56);
 
+    const mongoose = require('mongoose');
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+
     const result = await Application.aggregate([
-      { $match: { user: userId } },
+      { $match: { user: userObjectId } },
       {
         $facet: {
           totalAndStatusCounts: [
@@ -98,13 +101,15 @@ export const getDashboardSummary = async (req: Request, res: Response): Promise<
     if (jobIdsToLookup.length > 0) {
       const mongoose = require('mongoose');
       const Job = mongoose.model('Job');
-      const jobs = await Job.find({ _id: { $in: jobIdsToLookup } }, 'title company');
+      const jobs = await Job.find({ _id: { $in: jobIdsToLookup } }, 'title jobTitle company').lean();
       const jobMap = new Map(jobs.map((j: any) => [j._id.toString(), j]));
       
       recentActivity.forEach((act: any) => {
         if (act.jobId && jobMap.has(act.jobId.toString())) {
           const job: any = jobMap.get(act.jobId.toString());
-          act.title = `${job.title} at ${job.company}`;
+          const title = job.title || job.jobTitle || 'Unknown Role';
+          const company = job.company || 'Unknown Company';
+          act.title = `${title} at ${company}`;
         }
       });
     }
@@ -136,9 +141,12 @@ export const getSkillGaps = async (req: Request, res: Response): Promise<void> =
     let needsNewCommentary = false;
     let gaps: any[] = [];
 
+    const mongoose = require('mongoose');
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+
     // Aggregate skill gaps
     const result = await AgentTrace.aggregate([
-      { $match: { user: userId } },
+      { $match: { user: userObjectId } },
       { $unwind: "$missingSkills" },
       { $group: { _id: "$missingSkills", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
