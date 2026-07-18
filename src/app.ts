@@ -29,13 +29,18 @@ app.get('/api/v1/health', (req: Request, res: Response) => {
 // Import routes
 import authRoutes from './routes/auth.routes';
 import applicationRoutes from './routes/application.routes';
+import aiRoutes from './routes/aiContent.routes';
+import aiMatchRoutes from './routes/aiMatch.routes';
+import userRoutes from './routes/user.routes';
 
 // Mount routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/applications', applicationRoutes);
+app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/ai/match', aiMatchRoutes);
+app.use('/api/v1/users', userRoutes);
 
 // Placeholder for future routes
 // app.use('/api/v1/jobs', jobRoutes);
-// app.use('/api/v1/ai', aiRoutes);
 
 export default app;
