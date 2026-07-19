@@ -211,8 +211,8 @@ export const getAIUsageToday = async (req: Request, res: Response): Promise<void
 
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const limits: Record<string, number> = {
-      'cover-letter': Number(process.env.AI_LIMIT_COVER_LETTER) || 10,
-      'match-score':  Number(process.env.AI_LIMIT_MATCH_SCORE)  || 15,
+      'cover_letter': Number(process.env.AI_LIMIT_COVER_LETTER) || 10,
+      'match_score':  Number(process.env.AI_LIMIT_MATCH_SCORE)  || 15,
       'chat':         Number(process.env.AI_LIMIT_CHAT_MESSAGES) || 30,
     };
 
