@@ -172,7 +172,7 @@ The **Interview Coach** sends the full conversation history (system context + ev
 Full-Stack Developer · CSE Student, ULAB
 
 - 🌐 Portfolio: [saykot.dev](https://saykot.dev)
-- 💼 LinkedIn: [linkedin.com/in/your-actual-handle](https://linkedin.com/in/saykot-biswas-shawon)
+- 💼 LinkedIn: [linkedin.com/in/saykot-biswas-shawon](https://linkedin.com/in/saykot-biswas-shawon)
 - 🐙 GitHub: [github.com/sokoo69](https://github.com/sokoo69)
 - 📧 Email: shawon.saykot2023@gmail.com
 
