@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IAuditLog extends Document {
-  adminUser: mongoose.Types.ObjectId;
+  adminUser: mongoose.Types.ObjectId | string;
   action: 'create_job' | 'update_job' | 'delete_job';
   targetJobId: string;
   changesSummary: string;
