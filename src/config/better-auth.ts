@@ -12,8 +12,9 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET as string,
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:8000/api/v1/auth",
   trustedOrigins: [
-    process.env.FRONTEND_ORIGIN || "http://localhost:3000",
-    "http://localhost:3000",
+    process.env.FRONTEND_ORIGIN || "https://apply-iq-frontend.vercel.app",
+    "https://apply-iq-frontend.vercel.app",
+    // "http://localhost:3000",
   ],
   advanced: {
     defaultCookieAttributes: {
